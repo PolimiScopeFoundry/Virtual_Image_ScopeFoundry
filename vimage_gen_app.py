@@ -23,7 +23,7 @@ class VirtualImageGenTestApp(BaseMicroscopeApp):
         self.add_hardware(VirtualImageGenHW(self))
 
         #Add Measurement components
-        from vimage_gen_measure import VirtualImageGenMeasure
+        from vimage_gen_measure_objects_recognition import VirtualImageGenMeasure
         self.add_measurement(VirtualImageGenMeasure(self))
         
         

@@ -10,7 +10,7 @@ class VirtualImageGenMeasure(Measurement):
     
     # this is the name of the measurement that ScopeFoundry uses 
     # when displaying your measurement and saving data related to it    
-    name = "virtual_image_measure"
+    name = "virtual_image_measure_with_file_support"
     
     def setup(self):
         """
@@ -31,14 +31,15 @@ class VirtualImageGenMeasure(Measurement):
         # Measurement Specific Settings
         # This setting allows the option to save data to an h5 data file during a run
         # All settings are automatically added to the Microscope user interface
-        self.settings.New('save_h5', dtype=bool, initial=False)
+        self.settings.New('save_roi', dtype=bool, initial=False)
         self.settings.New('frame_num', dtype=int, initial=50)
         self.settings.New('time_lapse_num', dtype=int, initial=20)
         self.settings.New('channel_num', dtype=int, initial=2)
-        self.settings.New('sampling_period', dtype=float, unit='s', initial=0.1)
         self.settings.New('xsampling', dtype=float, unit='um', initial=0.5)
         self.settings.New('ysampling', dtype=float, unit='um', initial=0.5)
         self.settings.New('zsampling', dtype=float, unit='um', initial=3.0)
+        self.settings.New('save_h5', dtype=bool, initial=False)
+        self.settings.New('sampling_period', dtype=float, unit='s', initial=0.1)
               
         # Define how often to update display during a run
         self.display_update_period = 0.05 
@@ -98,6 +99,7 @@ class VirtualImageGenMeasure(Measurement):
     def run(self):
 
         self.frame_index = 0
+        self.channel_index = 0
         self.time_lapse_index = 0
 
         self.camera.camera_device.start_acquisition()    
@@ -125,13 +127,17 @@ class VirtualImageGenMeasure(Measurement):
         znum=self.settings['frame_num']
 
         try:
-            images_h5 = self.init_h5_datasets(times_number=tnum,
+            
+            if self.settings['save_roi']:
+                roi_h5 = self.init_h5_datasets(times_number=tnum,
+                                        channels_number=cnum,
+                                        z_number=znum, imshape= [150,150], name='roi')
+            else:
+                images_h5 = self.init_h5_datasets(times_number=tnum,
                                         channels_number=cnum,
                                         z_number=znum)
 
-            roi_h5 = self.init_h5_datasets(times_number=tnum,
-                                        channels_number=cnum,
-                                        z_number=znum, imshape= [150,150], name='roi')
+            
 
             self.camera.camera_device.start_acquisition()
             self.camera.camera_device.store_frame()
@@ -143,10 +149,12 @@ class VirtualImageGenMeasure(Measurement):
                     self.frame_index = 0
                     while self.frame_index < self.settings.frame_num.val:        
                         self.img = self.camera.camera_device.get_stored_frame()
-                        roi = self.img[100:250,100:250]
                         dataset_index=self.time_lapse_index*self.settings['channel_num'] + self.channel_index
-                        images_h5[dataset_index][self.frame_index,:,:] = self.img
-                        roi_h5[dataset_index][self.frame_index,:,:] = roi
+                        if self.settings['save_roi']:
+                            roi = self.img[50:200,50:200]    
+                            roi_h5[dataset_index][self.frame_index,:,:] = roi
+                        else:
+                            images_h5[dataset_index][self.frame_index,:,:] = self.img
                         self.frame_index +=1
                         self.h5file.flush() # introduces a slight time delay but assures that images are stored continuosly 
                         if self.interrupt_measurement_called:
