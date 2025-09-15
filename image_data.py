@@ -5,32 +5,33 @@ import cv2
 
 class ImageManager:
     '''
-    Class to be used to store the acquired images split in two channels and methods useful for cell identification and roi creation
+    Class to be used to store the acquired images split in N channels and methods useful for object identification and roi creation
     '''
 
     def __init__(self, dim_h, dim_v,
-                 size, min_cell_size,
+                 roisize, min_object_area=10,
                  Nchannels = 2, dtype=np.uint16):
 
-        zeros_im = np.zeros((dim_v,dim_h),dtype) 
-        
-        self.image = [zeros_im] * Nchannels    # original 16 bit images from the two channels
+        self.image = np.zeros((Nchannels,dim_v,dim_h),dtype) # original 16 bit images from the N channels   
         self.dim_h = dim_h
         self.dim_v = dim_v
         
-        self.contours = []        # list of contours of the detected cells
-        self.cx = []             # list of the x coordinates of the centroids of the detected cells
-        self.cy = []             # list of the y coordinates of the centroids of the detected cells
+        self.contours = []        # list of contours of the detected objects
+        self.cx = []             # list of the x coordinates of the centroids of the detected object
+        self.cy = []             # list of the y coordinates of the centroids of the detected object
          
-        self.roi_half_side = size        # half dimension of the roi
-        self.min_cell_size = min_cell_size    # minimum area that the object must have to be recognized as a cell
+        self.roisize = roisize        # roi size
+        self.min_object_area = min_object_area    # minimum area that the object must have to be recognized as a object
     
-
+    def clear_countours(self):
+        self.contours = []        
+        self.cx = []             
+        self.cy = []
         
-    def find_cell(self, ch):    # ch: selected channel       
+    def find_object(self, ch):    # ch: selected channel       
         """ Input: 
              ch: channel to use to create the 8 bit image to process
-        Determines if a region avove thresold is a cell, generates contours of the cells and their centroids cx and cy      
+        Determines if a region avove thresold is a object, generates contours of the objects and their centroids cx and cy      
         """          
     
         image8bit = (self.image[ch]/256).astype('uint8')
@@ -44,21 +45,21 @@ class ImageManager:
         cx = []
         cy = []            
         contours = []
-        roi_half_side = self.roi_half_side
+        roisize = self.roisize
         l = image8bit.shape
         
        
         for cnt in cnts:
             
             M = cv2.moments(cnt)
-            if M['m00'] >  int(self.min_cell_size):    # (M['m00'] gives the contour area, also as cv2.contourArea(cnt)
+            if M['m00'] >  int(self.min_object_area):    # (M['m00'] gives the contour area, also as cv2.contourArea(cnt)
                 #extracts image center
             
                 x0 = int(M['m10']/M['m00']) 
                 y0 = int(M['m01']/M['m00'])
-                x = int(x0 - roi_half_side) 
-                y = int(y0 - roi_half_side)
-                w = h = roi_half_side*2
+                x = int(x0 - roisize) 
+                y = int(y0 - roisize)
+                w = h = roisize*2
                     
         
                 if x>0 and y>0 and x+w<l[1]-1 and y+h<l[0]-1:    # only rois far from edges are considered
@@ -75,23 +76,22 @@ class ImageManager:
         """ Input: 
         img8bit: monochrome image, previously converted to 8bit
             Output:
-        displayed_image: RGB image with annotations
+        displayed_image: RGB image with rectangle annotations
         """  
         
         cx = self.cx
         cy = self.cy 
-        roi_half_side = self.roi_half_side
+        roisize = self.roisize
         contours = self.contours
       
         displayed_image = cv2.cvtColor(image8bit,cv2.COLOR_GRAY2RGB)      
         
-        for indx, _val in enumerate(cx):
-            
+        for indx, _val in enumerate(cx):       
     
-            x = int(cx[indx] - roi_half_side) 
-            y = int(cy[indx] - roi_half_side)
+            x = int(cx[indx] - roisize) 
+            y = int(cy[indx] - roisize)
          
-            w = h = roi_half_side*2
+            w = h = roisize*2
             
             displayed_image = cv2.drawContours(displayed_image, [contours[indx]], 0, (0,256,0), 2) 
             
@@ -115,20 +115,18 @@ class ImageManager:
         """          
         image16bit = self.image[ch]
     
-        roi_half_side = self.roi_half_side
+        roisize = self.roisize
         rois = []
         
         for indx, _val in enumerate(cx):
-            x = int(cx[indx] - roi_half_side) 
-            y = int(cy[indx] - roi_half_side)
-            w = h = roi_half_side*2
+            x = int(cx[indx] - roisize) 
+            y = int(cy[indx] - roisize)
+            w = h = roisize*2
             detail = image16bit [y:y+w, x:x+h]
             rois.append(detail)
                     
         return rois
-    
-    
-    
+   
     
     def highlight_channel(self,displayed_image):
         

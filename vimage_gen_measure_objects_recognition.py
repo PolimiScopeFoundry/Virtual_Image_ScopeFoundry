@@ -33,16 +33,14 @@ class VirtualImageGenMeasure(Measurement):
         # This setting allows the option to save data to an h5 data file during a run
         # All settings are automatically added to the Microscope user interface
 
-        
         self.settings.New('saving_type', dtype=str, initial='None', choices=['None', 'Roi', 'Stack'])
-        self.settings.New('roi_size', dtype=int, initial=200)
-        self.settings.New('min_cell_size', dtype=int, initial=1600)
-        self.settings.New('selected_channel', dtype=int, initial=0, vmin = 0, vmax = 1)
-        self.settings.New('captured_cells', dtype=int, initial=0)
+        self.settings.New('roi_size', dtype=int, initial=20, vmin=2)
+        self.settings.New('min_object_area', dtype=int, initial=10, vmin=4)
+        self.settings.New('selected_channel', dtype=int, initial=0, vmin=0, vmax=1)
+        self.settings.New('captured_objects', dtype=int, initial=0, ro=True)
         
-        self.settings.New('frame_num', dtype=int, initial=50)
-        self.settings.New('time_lapse_num', dtype=int, initial=20)
-        self.settings.New('channel_num', dtype=int, initial=2)
+        self.settings.New('frame_num', dtype=int, initial=50., vmin=1)
+        self.settings.New('channel_num', dtype=int, initial=2, vmin=1)
         
         self.settings.New('xsampling', dtype=float, unit='um', initial=0.5)
         self.settings.New('ysampling', dtype=float, unit='um', initial=0.5)
@@ -53,14 +51,8 @@ class VirtualImageGenMeasure(Measurement):
         self.settings.New('level_min', dtype=int, initial=60)
         self.settings.New('level_max', dtype=int, initial=4000)
 
-
-
-
         self.settings.New('measure', dtype=bool, initial=False)
         self.settings.New('sampling_period', dtype=float, unit='s', initial=0.1)
-              
-        # Define how often to update display during a run
-        self.display_update_period = 0.05 
         
         # Convenient reference to the hardware used in the measurement
         self.camera = self.app.hardware['virtual_image_gen']
@@ -86,6 +78,7 @@ class VirtualImageGenMeasure(Measurement):
                 
         # Set up pyqtgraph graph_layout in the UI
         self.imv = pg.ImageView()
+        self.imv.ui.histogram.hide()
         self.ui.image_groupBox.layout().addWidget(self.imv)
         colors = [(0, 0, 0),
                   (45, 5, 61),
@@ -105,213 +98,190 @@ class VirtualImageGenMeasure(Measurement):
         its update frequency is defined by self.display_update_period
         """
         self.display_update_period = self.settings['sampling_period']
-        if hasattr(self, 'img'):
-            pass
-
-        else:
         
-            try:
-                ch = self.settings.selected_channel.val
+        #time0 = time.time()
+        ch = self.settings.selected_channel.val
+        im = self.im.image[ch,...]
+        if self.settings['auto_levels']:
+            # if autolevel is ON, normalize the image to its max and min     
+            level_min = np.amin(im)
+            level_max = np.amax(im)
+            self.settings['level_min'] = level_min    
+            self.settings['level_max'] = level_max
+        
+        else:
+            # if autolevel is OFF, normalize the image to the choosen values     
+            level_min = self.settings['level_min']
+            level_max = self.settings['level_max']
+        
+        # thresolding is required if autolevel is OFF; it could be avoided if autolevel is ON
+        img_thres = np.clip(im, level_min, level_max)
+        
+        # conversion to 8bit is done here for compatibility with opencv    
+        image8bit_normalized = ((img_thres-level_min+1)/(level_max-level_min+1)*255).astype('uint8') 
+        
+        # creation of the image with open cv annotations, ready to be displayed
+        displayed_image = self.im.draw_contours_on_image(image8bit_normalized)
+        
+        self.imv.setImage(displayed_image,
+                    autoLevels=False,
+                    autoRange = self.settings.auto_range.val,
+                    levels=(0,255))
+        
+        # print(f'Image displayed in {time.time()-time0:.3f} s')
 
-                if self.settings['auto_levels']:
-                    # if autolevel is ON, normalize the image to its max and min     
-                    level_min = np.amin(self.im.image[ch])
-                    level_max = np.amax(self.im.image[ch])
-                    self.settings['level_min'] = level_min    
-                    self.settings['level_max'] = level_max
-                
-                else:
-                    # if autolevel is OFF, normalize the image to the choosen values     
-                    level_min = self.settings['level_min']
-                    level_max = self.settings['level_max']
-
-                # thresolding is required if autolevel is OFF; it could be avoided if autolevel is ON
-                img_thres = np.clip(self.im.image[ch], level_min, level_max)
-                
-                # conversion to 8bit is done here for compatibility with opencv    
-                image8bit_normalized = ((img_thres-level_min+1)/(level_max-level_min+1)*255).astype('uint8') 
-                
-                # creation of the image with open cv annotations, ready to be displayed
-                displayed_image = self.im.draw_contours_on_image(image8bit_normalized)
-            
-                self.imv.setImage(displayed_image,
-                            autoLevels=False,
-                            autoRange = self.settings.auto_range.val,
-                            levels=(0,255))
-            
-            except Exception as e:
-                    print("Error in image display")
-                    print(e)                
-            
-    
-    def run(self):
-
-        self.frame_index = 0
-        self.channel_index = 0
-        self.time_lapse_index = 0
-        self.settings['captured_cells'] = 0
-
+        if self.settings['measure'] and self.settings['saving_type'] == 'Stack':
+            z_idx = self.frame_index
+            c_idx = self.channel_index
+            frames=self.settings['frame_num']
+            channels=self.settings['channel_num']
+            progress = (c_idx+z_idx*channels)*100/(frames*channels)
+            self.settings['progress'] = progress # Set progress bar percentage complete
+        
+    def pre_run(self):
+        # Acquire initial image (1 for each channel) to set up the Image Manager
         self.camera.camera_device.start_acquisition()    
+        self.channel_index = 0
+        while self.channel_index < self.settings.channel_num.val:
+            img = self.camera.camera_device.get_frame()
+            if self.channel_index == 0:
+                self.im = ImageManager(
+                            img.shape[1], img.shape[0],
+                                self.settings.roi_size.val,
+                                min_object_area = self.settings.min_object_area.val,
+                                Nchannels=self.settings.channel_num.val,
+                                dtype=img.dtype
+                                )
+            self.im.image[self.channel_index,...] = img
+            self.channel_index +=1
 
+
+    def run(self):
+        
         while not self.interrupt_measurement_called:
             
-            data = self.camera.camera_device.get_frame()
-            img = data
-            img_shape = img.shape
-            self.im = ImageManager(img_shape[1], img_shape[0],
-                             self.settings.size.val,
-                             self.settings.min_cell_size.val,
-                             dtype=img.dtype)
+            self.channel_index = 0
 
-            if self.settings['measure']:
-                self.measure()
-                self.camera.camera_device.stop_acquisition()
+            while self.channel_index < self.settings.channel_num.val:
+                img = self.camera.camera_device.get_frame() # camera specific function
+                self.im.image[self.channel_index,...] = img
+                self.channel_index +=1   
+                
+            if self.settings['measure'] and self.settings['saving_type'] == 'Roi':
+                self.save_roi()
                 break
-                    
+            elif self.settings['measure'] and self.settings['saving_type'] == 'Stack':
+                self.camera.camera_device.stop_acquisition() # camera specific function
+                self.save_stack()
+                break
+            elif self.settings['measure']:
+                self.measure()        
+                break
+            
+            
             if self.interrupt_measurement_called:
-                self.camera.camera_device.stop_acquisition()
                 break
+
+        self.camera.camera_device.stop_acquisition()  # camera specific function 
+
+    def save_roi(self):
+        pass
+    
 
     def measure(self):
         
-        time0 = time.time()
+        self.settings['captured_objects'] = 0
+
+        while not self.interrupt_measurement_called:
+            self.channel_index = 0
+            
+            while self.channel_index < self.settings.channel_num.val:
+                
+                img = self.camera.camera_device.get_frame() # camera specific function
+
+                self.im.image[self.channel_index,...] = img
+
+                time0 = time.time()
+                if self.channel_index == self.settings.selected_channel.val:
+                    self.im.find_object(self.settings.selected_channel.val)
+        
+                rois = self.im.roi_creation(self.channel_index, self.im.cx, self.im.cy)
+                    
+                self.settings['captured_objects'] = len(rois)
+
+                self.channel_index +=1
+                print(f'Channel {self.channel_index} acquired in {time.time()-time0:.3f} s')
+                
+            if self.interrupt_measurement_called or self.settings['measure'] == False:
+                self.camera.camera_device.stop_acquisition() # camera specific function
+                break
+        
+        self.settings['measure'] = False
+
+
+    def save_stack(self):
+
         cnum=self.settings['channel_num']
         znum=self.settings['frame_num']
-        self.settings['captured_cells'] = 0
+        
+        images_h5 = self.init_h5_datasets(channels_number=cnum,
+                                    z_number=znum)
 
-        try:
-            roi_h5 = self.init_h5_datasets(times_number=1,
-                                            channels_number=cnum,
-                                            z_number=znum, 
-                                            imshape= [self.settings['roi_size'],
-                                                    self.settings['roi_size']],
-                                            name='roi')
+        self.camera.camera_device.start_acquisition() # camera specific function
+        self.camera.camera_device.store_frame() # camera specific function 
 
-            self.camera.camera_device.start_acquisition()
-            self.camera.camera_device.store_frame()
-            
-            while not self.interrupt_measurement_called:
-                self.channel_index = 0
+        self.frame_index = 0
+        while self.frame_index < self.settings.frame_num.val:
+            self.channel_index = 0 
+            while self.channel_index < self.settings.channel_num.val:
                 
-                while self.channel_index < self.settings.channel_num.val:
-                    self.frame_index = 0
-                    
-                    while self.frame_index < self.settings.frame_num.val:        
-                        self.img = self.camera.camera_device.get_stored_frame()
-                        self.im.image[self.channel_index] = self.img
-                        
-                        if self.channel_index == self.settings.selected_channel.val:
-                            self.im.find_cell(self.settings.selected_channel.val)
-                            
-                        if first_cycle:
-                            self.append_h5_dataset(
-                                    roi_h5,
-                                    times_number=1,
-                                    channels_number=cnum,
-                                    z_number=znum, 
-                                    imshape= [self.settings['roi_size'],self.settings['roi_size']],
-                                    name='roi'
-                                    )
-                            first_cycle = False
-                    
-                        num_rois = len(self.im.contours)
-                        num_active_rois = len(active_rois)
-                        
-                        if num_rois == num_active_rois:
-                            active_rois = self.im.roi_creation(self.channel_index, active_cx, active_cy)
-                        
-                        else:
-                            active_rois = self.im.roi_creation(self.channel_index, self.im.cx, self.im.cy)
-                            active_cx = self.im.cx
-                            active_cy = self.im.cy
-                            
-                        if self.settings['save_roi']:      
-                            for roi in active_rois:
-                                
-                                # create a new dataset if we are dealing with a new cell
-                                self.roi_h5_dataset(roi_index, self.channel_index)
-                                dataset_index = self.time_lapse_index*self.settings['channel_num'] + self.channel_index
-                                roi_h5[dataset_index][self.frame_index,:,:] = roi
-                                self.h5_roi_file.flush()    # this allow us to open the h5 file also while it is not completely created yet
-                                z_index_roi[self.channel_index] += 1
-                            
-                            if num_rois < num_active_rois:
-                                roi_index += 1
-                                z_index_roi = [0]*len(self.settings.channel_num.val)      
-                         
-                        self.settings['captured_cells'] = roi_index
+                img = self.camera.camera_device.get_stored_frame() # camera specific function
+                
+                self.im.image[self.channel_index,...] = img 
+                images_h5[self.channel_index][self.frame_index,:,:] = img
+                self.channel_index +=1
+                self.h5file.flush() # introduces a slight time delay but assures that images are stored continuosly 
+                if self.interrupt_measurement_called:
+                    self.camera.camera_device.stop_acquisition()
+                    break
 
-                        dataset_index=self.time_lapse_index*self.settings['channel_num'] + self.channel_index
-                        if self.settings['save_roi']:
-                            roi = self.img[50:200,50:200]    
-                            roi_h5[dataset_index][self.frame_index,:,:] = roi
-                        else:
-                            images_h5[dataset_index][self.frame_index,:,:] = self.img
-                        self.frame_index +=1
-                        self.h5file.flush() # introduces a slight time delay but assures that images are stored continuosly 
-                        if self.interrupt_measurement_called:
-                            self.camera.camera_device.stop_acquisition()
-                            break  
-                    self.channel_index +=1  
-                self.time_lapse_index +=1
+            self.frame_index +=1  
 
-        finally:
-            self.camera.camera_device.stop_acquisition()
-            self.h5file.close()
-            delattr(self, 'h5file')
-            delattr(self, 'h5_group')
-            self.settings['measure'] = False
-            print('Measurement execution time:',time.time()-time0)
+        
+        self.camera.camera_device.stop_acquisition()
+        self.h5file.close()
+        delattr(self, 'h5file')
+        delattr(self, 'h5_group')
+        self.settings['measure'] = False
 
     def create_group(self):
+
         if not os.path.isdir(self.app.settings['save_dir']):
             os.makedirs(self.app.settings['save_dir'])
         self.h5file = h5_io.h5_base_file(app=self.app, measurement=self)
         self.h5_group = h5_io.h5_create_measurement_group(measurement=self, h5group=self.h5file)
 
 
-    def init_h5_datasets(self,times_number=1,channels_number=1,z_number=1,
+    def init_h5_datasets(self,channels_number=1,z_number=1,
                      imshape=None,dtype=None,name='image'):
         
         if not hasattr(self, 'h5_group'):
             self.create_group()
 
         if imshape is None:
-            imshape = self.img.shape
+            imshape = self.im.image.shape[1:]  # shape is [channels, height, width]
         shape=[z_number, imshape[0], imshape[1]]
     
         if dtype is None:
-            dtype = self.img.dtype
+            dtype = self.im.image.dtype
 
         images_h5 = [] # image_h5 is a list of lists of h5 datasets
         
-        for tl_idx in range(times_number):
-                     
-            for ch_idx in range(channels_number):
-                dataset = self.h5_group.create_dataset(name  = f't{tl_idx}/c{ch_idx}/{name}', 
-                                                          shape = shape,
-                                                          dtype = dtype)  
-                dataset.attrs['element_size_um'] =  [self.settings['zsampling'], self.settings['ysampling'], self.settings['xsampling']]
-                images_h5.append(dataset)
-        
-        return images_h5
-
-    def append_h5_dataset(self,images_h5, channels_number=1,z_number=1,
-                     imshape=None,dtype=None,name='image'):
-        
-        if imshape is None:
-            imshape = self.img.shape
-        shape=[z_number, imshape[0], imshape[1]]
-    
-        if dtype is None:
-            dtype = self.img.dtype
-        
-       
-                     
         for ch_idx in range(channels_number):
-            dataset = self.h5_group.create_dataset(name  = f't{tl_idx}/c{ch_idx}/{name}', 
+            dataset = self.h5_group.create_dataset(name  = f't0/c{ch_idx}/{name}', 
                                                         shape = shape,
                                                         dtype = dtype)  
             dataset.attrs['element_size_um'] =  [self.settings['zsampling'], self.settings['ysampling'], self.settings['xsampling']]
             images_h5.append(dataset)
-    
+        
+        return images_h5

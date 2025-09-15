@@ -12,18 +12,27 @@ class VirtualImageGenHW(HardwareComponent):
         # Define your hardware settings here.
         # These settings will be displayed in the GUI and auto-saved with data files
                 
-        self.settings.New(name='amplitude', initial=1.0, dtype=float, ro=False)
-        self.settings.New(name='size', initial=1000, dtype=int, ro=False)    
+        self.settings.New(name='signal_amplitude', initial=500.0, dtype=float, ro=False, reread_from_hardware_after_write=True)
+        self.settings.New(name='noise_amplitude', initial=100.0, dtype=float, ro=False, reread_from_hardware_after_write=True)
+        self.settings.New(name='size', initial=520, dtype=int, ro=False, reread_from_hardware_after_write=True)    
  
     def connect(self):
         # Open connection to the device:
-        self.camera_device = VirtualImageGenDevice(amplitude=self.settings['amplitude'])
-        
-        # Connect settings to hardware:
-        self.settings.amplitude.connect_to_hardware(
-            write_func = self.camera_device.write_amp
+        self.camera_device = VirtualImageGenDevice(
+            signal_amplitude = self.settings.signal_amplitude.val,
+            noise_amplitude = self.settings.noise_amplitude.val,
+            size = self.settings.size.val               
             )
         
+        # Connect settings to hardware:
+        self.settings.signal_amplitude.connect_to_hardware(
+            write_func = self.camera_device.write_signal_amp
+            )
+        
+        self.settings.noise_amplitude.connect_to_hardware(
+            write_func = self.camera_device.write_noise_amp
+            )
+
         self.settings.size.connect_to_hardware(
             write_func  = self.camera_device.write_size
             )
