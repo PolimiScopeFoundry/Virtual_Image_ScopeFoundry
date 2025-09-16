@@ -209,7 +209,7 @@ class VirtualImageGenMeasure(Measurement):
     def save_roi(self):
         im = self.im
         cnum = self.settings['channel_num']
-        znum = 0 # TODO: self.settings['frame_num'] # change to znum when z-stacks are implemented
+        znum = 1 # TODO: self.settings['frame_num'] # change to znum when z-stacks are implemented
         roisize = self.settings['roi_size']
         
         for roi_idx in range(len(im.cx)):
