@@ -9,7 +9,9 @@ class ImageManager:
     '''
 
     def __init__(self, dim_h, dim_v,
-                 roisize, min_object_area=10,
+                 roisize,
+                 min_object_area=10,
+                 max_object_area=100,
                  Nchannels = 2, dtype=np.uint16):
 
         self.image = np.zeros((Nchannels,dim_v,dim_h),dtype) # original 16 bit images from the N channels   
@@ -22,7 +24,8 @@ class ImageManager:
          
         self.roisize = roisize        # roi size
         self.min_object_area = min_object_area    # minimum area that the object must have to be recognized as a object
-    
+        self.max_object_area = max_object_area    # maximum area that the object can have to be recognized as a object
+
     def clear_countours(self):
         self.contours = []        
         self.cx = []             
@@ -38,9 +41,9 @@ class ImageManager:
         
         _ret,thresh_pre = cv2.threshold(image8bit,0,255,cv2.THRESH_BINARY+cv2.THRESH_OTSU)
         # ret is the threshold that was used, thresh is the thresholded image.     
-        kernel  = np.ones((3,3),np.uint8)
-        thresh = cv2.morphologyEx(thresh_pre,cv2.MORPH_OPEN, kernel, iterations = 2)
-        # morphological opening (remove noise)
+        kernel  = np.ones((2,2),np.uint8)
+        thresh = cv2.morphologyEx(thresh_pre,cv2.MORPH_OPEN, kernel, iterations = 1)
+        # morphological opening (removes noise)
         cnts, _hierarchy = cv2.findContours(thresh,cv2.RETR_EXTERNAL,cv2.CHAIN_APPROX_SIMPLE)
         cx = []
         cy = []            
@@ -48,19 +51,16 @@ class ImageManager:
         roisize = self.roisize
         l = image8bit.shape
         
-       
         for cnt in cnts:
             
             M = cv2.moments(cnt)
-            if M['m00'] >  int(self.min_object_area):    # (M['m00'] gives the contour area, also as cv2.contourArea(cnt)
-                #extracts image center
-            
+            if M['m00'] >  int(self.min_object_area) and M['m00'] < int(self.max_object_area): 
+                # (M['m00'] gives the contour area, also as cv2.contourArea(cnt)
                 x0 = int(M['m10']/M['m00']) 
                 y0 = int(M['m01']/M['m00'])
-                x = int(x0 - roisize) 
-                y = int(y0 - roisize)
-                w = h = roisize*2
-                    
+                x = int(x0 - roisize//2) 
+                y = int(y0 - roisize//2)
+                w = h = roisize
         
                 if x>0 and y>0 and x+w<l[1]-1 and y+h<l[0]-1:    # only rois far from edges are considered
                     cx.append(x0)
@@ -71,7 +71,25 @@ class ImageManager:
         self.cy = cy 
         self.contours = contours  
 
-    
+    def copy(self):
+        """
+        Returns a deep copy of the ImageManager instance.
+        """
+        new_im = ImageManager(
+            self.dim_h,
+            self.dim_v,
+            self.roisize,
+            min_object_area=self.min_object_area,
+            Nchannels=self.image.shape[0],
+            dtype=self.image.dtype
+        )
+        new_im.image = self.image.copy()
+        new_im.contours = [cnt.copy() for cnt in self.contours]
+        new_im.cx = self.cx.copy()
+        new_im.cy = self.cy.copy()
+        return new_im
+
+
     def draw_contours_on_image(self, image8bit):        
         """ Input: 
         img8bit: monochrome image, previously converted to 8bit
@@ -88,10 +106,10 @@ class ImageManager:
         
         for indx, _val in enumerate(cx):       
     
-            x = int(cx[indx] - roisize) 
-            y = int(cy[indx] - roisize)
+            x = int(cx[indx] - roisize//2) 
+            y = int(cy[indx] - roisize//2)
          
-            w = h = roisize*2
+            w = h = roisize
             
             displayed_image = cv2.drawContours(displayed_image, [contours[indx]], 0, (0,256,0), 2) 
             
@@ -106,7 +124,7 @@ class ImageManager:
     
     
     
-    def roi_creation(self, ch, cx, cy):
+    def extract_rois(self, ch, cx, cy):
         """ Input: 
         ch: selected channel
         args: centroids cx and cy, if specified
@@ -119,9 +137,9 @@ class ImageManager:
         rois = []
         
         for indx, _val in enumerate(cx):
-            x = int(cx[indx] - roisize) 
-            y = int(cy[indx] - roisize)
-            w = h = roisize*2
+            x = int(cx[indx] - roisize//2) 
+            y = int(cy[indx] - roisize//2)
+            w = h = roisize
             detail = image16bit [y:y+w, x:x+h]
             rois.append(detail)
                     

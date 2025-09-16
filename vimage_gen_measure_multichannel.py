@@ -58,8 +58,6 @@ class VirtualImageGenMeasure(Measurement):
         self.ui.start_pushButton.clicked.connect(self.start)
         self.ui.interrupt_pushButton.clicked.connect(self.interrupt)
         self.settings.save_h5.connect_to_widget(self.ui.save_h5_checkBox)
-        
-        self.camera.settings.amplitude.connect_to_widget(self.ui.amp_doubleSpinBox)
                 
         # Set up pyqtgraph graph_layout in the UI
         self.imv = pg.ImageView()
@@ -140,28 +138,32 @@ class VirtualImageGenMeasure(Measurement):
             
 
             self.camera.camera_device.start_acquisition()
-            self.camera.camera_device.store_frame()
+            # self.camera.camera_device.store_frame()
             
             self.time_lapse_index = 0
             while self.time_lapse_index < self.settings.time_lapse_num.val:
-                self.channel_index = 0
-                while self.channel_index < self.settings.channel_num.val:
-                    self.frame_index = 0
-                    while self.frame_index < self.settings.frame_num.val:        
-                        self.img = self.camera.camera_device.get_stored_frame()
+                self.frame_index = 0
+                while self.frame_index < self.settings.frame_num.val:
+                    self.channel_index = 0 
+                    while self.channel_index < self.settings.channel_num.val:        
+                        self.img = self.camera.camera_device.get_frame()
                         dataset_index=self.time_lapse_index*self.settings['channel_num'] + self.channel_index
                         if self.settings['save_roi']:
                             roi = self.img[50:200,50:200]    
                             roi_h5[dataset_index][self.frame_index,:,:] = roi
                         else:
                             images_h5[dataset_index][self.frame_index,:,:] = self.img
-                        self.frame_index +=1
+                        self.channel_index +=1
                         self.h5file.flush() # introduces a slight time delay but assures that images are stored continuosly 
                         if self.interrupt_measurement_called:
-                            self.camera.camera_device.stop_acquisition()
                             break  
-                    self.channel_index +=1  
+                    self.frame_index +=1
+                    if self.interrupt_measurement_called:
+                        break   
                 self.time_lapse_index +=1
+                if self.interrupt_measurement_called:
+                    self.camera.camera_device.stop_acquisition()
+                    break 
 
         finally:
             self.camera.camera_device.stop_acquisition()

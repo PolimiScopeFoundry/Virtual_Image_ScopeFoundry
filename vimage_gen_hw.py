@@ -12,16 +12,19 @@ class VirtualImageGenHW(HardwareComponent):
         # Define your hardware settings here.
         # These settings will be displayed in the GUI and auto-saved with data files
                 
-        self.settings.New(name='signal_amplitude', initial=500.0, dtype=float, ro=False, reread_from_hardware_after_write=True)
-        self.settings.New(name='noise_amplitude', initial=100.0, dtype=float, ro=False, reread_from_hardware_after_write=True)
-        self.settings.New(name='size', initial=520, dtype=int, ro=False, reread_from_hardware_after_write=True)    
+        self.settings.New(name='signal_amplitude', initial=500.0, dtype=float, ro=False, reread_from_hardware_after_write=False)
+        self.settings.New(name='mean_particles', initial=10.0, dtype=int, ro=False, reread_from_hardware_after_write=False)
+        self.settings.New(name='noise_amplitude', initial=100.0, dtype=float, ro=False, reread_from_hardware_after_write=False)
+        self.settings.New(name='sizex', initial=520, dtype=int, ro=False, reread_from_hardware_after_write=False)    
+        self.settings.New(name='sizey', initial=200, dtype=int, ro=False, reread_from_hardware_after_write=False)    
  
     def connect(self):
         # Open connection to the device:
         self.camera_device = VirtualImageGenDevice(
             signal_amplitude = self.settings.signal_amplitude.val,
             noise_amplitude = self.settings.noise_amplitude.val,
-            size = self.settings.size.val               
+            sizex = self.settings.sizex.val,
+            sizey = self.settings.sizey.val                
             )
         
         # Connect settings to hardware:
@@ -33,8 +36,15 @@ class VirtualImageGenHW(HardwareComponent):
             write_func = self.camera_device.write_noise_amp
             )
 
-        self.settings.size.connect_to_hardware(
-            write_func  = self.camera_device.write_size
+        self.settings.sizex.connect_to_hardware(
+            write_func  = self.camera_device.write_sizex
+            )
+        
+        self.settings.sizey.connect_to_hardware(
+            write_func  = self.camera_device.write_sizey
+            )
+        self.settings.mean_particles.connect_to_hardware(
+            write_func = self.camera_device.write_mean_particles
             )
                             
         #Take an initial sample of the data.

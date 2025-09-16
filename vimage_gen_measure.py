@@ -56,8 +56,6 @@ class VirtualImageGenMeasure(Measurement):
         self.ui.start_pushButton.clicked.connect(self.start)
         self.ui.interrupt_pushButton.clicked.connect(self.interrupt)
         self.settings.save_h5.connect_to_widget(self.ui.save_h5_checkBox)
-        
-        self.camera.settings.amplitude.connect_to_widget(self.ui.amp_doubleSpinBox)
                 
         # Set up pyqtgraph graph_layout in the UI
         self.imv = pg.ImageView()
@@ -123,12 +121,12 @@ class VirtualImageGenMeasure(Measurement):
         self.time_lapse_index = 0
 
         self.camera.camera_device.start_acquisition()
-        self.camera.camera_device.store_frame()
+        #self.camera.camera_device.store_frame()
 
         while self.time_lapse_index < self.settings.time_lapse_num.val:
             self.frame_index = 0
             while self.frame_index < self.settings.frame_num.val:
-                self.img = self.camera.camera_device.get_stored_frame()
+                self.img = self.camera.camera_device.get_frame()
                 self.images_h5[self.time_lapse_index][self.frame_index,:,:] = self.img
                 self.frame_index +=1
                 self.h5file.flush() # introduces a slight time delay but assures that images are stored continuosly 

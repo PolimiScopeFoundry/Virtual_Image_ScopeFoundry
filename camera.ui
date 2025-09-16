@@ -110,9 +110,9 @@
         </layout>
        </item>
        <item row="0" column="1">
-        <widget class="QCheckBox" name="measure_checkBox">
+        <widget class="QCheckBox" name="detect_checkBox">
          <property name="text">
-          <string>Measure</string>
+          <string>Detect objects</string>
          </property>
         </widget>
        </item>
