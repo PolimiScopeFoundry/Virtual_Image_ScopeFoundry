@@ -25,7 +25,7 @@ class VirtualImageGenMeasure(Measurement):
         # This file can be edited graphically with Qt Creator
         # sibling_path function allows python to find a file in the same folder
         # as this python module
-        self.ui_filename = sibling_path(__file__, "camera.ui")
+        self.ui_filename = sibling_path(__file__, "camera_with_object_recognition.ui")
         
         #Load ui file and convert it to a live QWidget of the user interface
         self.ui = load_qt_ui_file(self.ui_filename)
@@ -40,6 +40,7 @@ class VirtualImageGenMeasure(Measurement):
         self.settings.New('max_object_area', dtype=int, initial=4000, vmin=1)
         self.settings.New('selected_channel', dtype=int, initial=0, vmin=0, vmax=1)
         self.settings.New('captured_objects', dtype=int, initial=0, ro=True)
+        self.settings.New('objects_in_frame', dtype=int, initial=0, ro=True)
         
         self.settings.New('frame_num', dtype=int, initial=1, vmin=1)
         self.settings.New('channel_num', dtype=int, initial=2, vmin=1)
@@ -78,11 +79,16 @@ class VirtualImageGenMeasure(Measurement):
         self.settings.auto_range.connect_to_widget(self.ui.autoRange_checkbox)
         self.settings.level_min.connect_to_widget(self.ui.min_doubleSpinBox) 
         self.settings.level_max.connect_to_widget(self.ui.max_doubleSpinBox) 
+
+        self.settings.captured_objects.connect_to_widget(self.ui.num_objects_SpinBox)
+        self.settings.objects_in_frame.connect_to_widget(self.ui.objects_in_frame_SpinBox)
                 
         # Set up pyqtgraph graph_layout in the UI
         self.imv = pg.ImageView()
         self.imv.ui.histogram.hide()
-        self.ui.image_groupBox.layout().addWidget(self.imv)
+        self.imv.ui.roiBtn.hide()
+        self.imv.ui.menuBtn.hide()
+        self.ui.image_layout.layout().addWidget(self.imv)
         colors = [(0, 0, 0),
                   (45, 5, 61),
                   (84, 42, 55),
@@ -185,7 +191,7 @@ class VirtualImageGenMeasure(Measurement):
             if self.settings['detect']:
                 self.detect_objects()
             else:
-                self.settings['captured_objects'] = 0
+                self.settings['objects_in_frame'] = 0
                 self.im.clear_countours()      
 
             if self.settings['saving_type'] == 'Roi':
@@ -196,7 +202,7 @@ class VirtualImageGenMeasure(Measurement):
                 self.save_roi()
             
             if self.settings['saving_type'] == 'Stack':
-                self.settings['captured_objects'] = 0
+                self.settings['objects_in_frame'] = 0
                 self.save_stack()
                 break
 
@@ -210,6 +216,7 @@ class VirtualImageGenMeasure(Measurement):
         im = self.im
         cnum = self.settings['channel_num']
         znum = 1 # TODO: self.settings['frame_num'] # change to znum when z-stacks are implemented
+        
         roisize = self.settings['roi_size']
         
         for roi_idx in range(len(im.cx)):
@@ -224,6 +231,7 @@ class VirtualImageGenMeasure(Measurement):
                 roi = im.extract_rois(ch_idx,im.cx,im.cy)
                 h5_roi_dataset[0,:,:] = roi[roi_idx]
                 self.time_index += 1
+            self.settings['captured_objects'] += 1
             self.h5file.flush() 
 
             if self.interrupt_measurement_called or self.time_index >= 100:
@@ -235,7 +243,7 @@ class VirtualImageGenMeasure(Measurement):
     def detect_objects(self):
         #time0 = time.time()
         self.im.find_object(self.settings.selected_channel.val)
-        self.settings['captured_objects'] = len(self.im.contours)
+        self.settings['objects_in_frame'] = len(self.im.contours)
         #print(f'Objects {self.settings['captured_objects']} acquired in {time.time()-time0:.3f} s')
             
 
